@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>GO/NOGO Assessment – Capture</title>
+<style>
+:root{
+  --bg:#f4f5f3; --card:#ffffff; --ink:#1d2320; --muted:#66706b; --line:#dfe3df;
+  --brand:#2f5d50; --brand-soft:#e6efeb; --side:#1f3b33;
+  --done:#2e7d4f; --done-soft:#e3f2e8; --late:#b3261e; --late-soft:#fbe7e5;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#131715; --card:#1b201e; --ink:#e7ebe8; --muted:#9aa49f; --line:#2c3330;
+    --brand:#7fbfa8; --brand-soft:#21302b; --side:#0f1412; --done:#6fcf97; --done-soft:#1d2e24; --late:#f08c84; --late-soft:#351e1c; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+header{background:var(--side);color:#dbe7e2;padding:12px 16px calc(12px) ;padding-top:calc(12px + env(safe-area-inset-top))}
+header .co{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+header .ti{font-size:17px;font-weight:700}
+main{padding:16px;max-width:640px;margin:0 auto}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
+h2{margin:0 0 6px;font-size:16px}
+.muted{color:var(--muted)} .hint{font-size:12px;color:var(--muted);margin-top:6px}
+label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;font:inherit;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+button{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:10px 14px;border-radius:6px;cursor:pointer;min-height:48px}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+button:disabled{opacity:.6}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.row button{flex:1}
+.big{min-height:64px;font-size:17px}
+.err{color:var(--late);font-size:13px;margin-top:8px;min-height:1em}
+.ok{color:var(--done);font-size:14px}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-top:8px}
+.shots div{position:relative}
+.shots img{width:100%;height:100px;object-fit:cover;border-radius:6px;display:block;background:var(--line)}
+.shots .n{position:absolute;left:5px;top:5px;font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;background:rgba(0,0,0,.6);color:#fff}
+.shots .x{position:absolute;right:4px;top:4px;min-height:0;padding:0 8px;font-size:13px}
+.shots .up{position:absolute;left:5px;bottom:5px;font-size:11px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--done);color:#fff}
+.cam{position:fixed;inset:0;background:#000;display:none;flex-direction:column;z-index:10}
+.cam.on{display:flex}
+.cam video,.cam img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.camtop{color:#fff;font-size:14px;text-align:center;padding:10px;padding-top:calc(10px + env(safe-area-inset-top))}
+.cambar{display:flex;gap:10px;justify-content:center;align-items:center;padding:14px 12px calc(16px + env(safe-area-inset-bottom))}
+.cambar button{flex:1;max-width:220px;min-height:54px}
+.cambar .snap{flex:0 0 76px;max-width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid #9aa49f;padding:0}
+.cambar .sp{flex:1;max-width:220px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header><div class="co">A.L. Paper House LLP</div><div class="ti">GO/NOGO · Assessment Capture</div></header>
+<main id="app"><section><div class="muted">Loading…</div></section></main>
+<div class="cam" id="cam"><div class="camtop" id="camTop"></div><video id="camV" playsinline autoplay muted></video><img id="camShot" class="hide" alt="Photo"><div class="cambar" id="camBar"></div></div>
+<input type="file" id="pickIn" accept="image/*" multiple hidden>
+<input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+<script>
+/* Phone camera page for the GO/NOGO dashboard → Assessment.
+   Saves to the same Google Sheet tab (ASSESSMENT) and Drive folder (GO-NOGO Assessment › Findings)
+   through the dashboard's Apps Script (doPost). Same login (name + PIN) as the dashboard. */
+const API = 'https://script.google.com/macros/s/AKfycbyx85sWMHbPkIVz7ekHhaQtDQMzD1Jcu2g0MqRF33V3-LayYXWyckbZMGClR-I7K8Rf/exec';
+const DASH = 'https://script.google.com/macros/s/AKfycbyb-iR4VG9Wb53bgFUUryAB3zGVMz19FtrVmgvrSrYNyvAdsnJxkuwd6j_oRe58bqhJEA/exec';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', dept:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
+try { AUTH = localStorage.getItem('gonogo_cap_auth') || ''; } catch(e){}
+/* The dashboard passes its login in the link (#t=…) so nobody has to log in twice; it is removed from the address bar at once. */
+(() => { const m = /[#&]t=([^&]+)/.exec(location.hash || ''); if (m) { AUTH = decodeURIComponent(m[1]); try { localStorage.setItem('gonogo_cap_auth', AUTH); } catch(e){} history.replaceState(null, '', location.pathname); } })();
+
+async function api(fn, arg){
+  if (navigator.onLine === false) throw 'You are offline — connect to mobile data or Wi-Fi and try again.';
+  const a = Object.assign({}, arg || {}); if (fn !== 'login' && fn !== 'loginNames') a.auth = AUTH;
+  let r;
+  try { r = await fetch(API, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify({fn, arg:a})}); }
+  catch(e) { throw 'Could not reach Google — check the internet and try again.'; }
+  let j; try { j = await r.json(); } catch(e) { throw 'Unexpected reply from Google (' + r.status + ').'; }
+  if (!j.ok) { const m = String(j.error || 'Error'); if (/AUTH:/.test(m)) { AUTH = ''; try { localStorage.removeItem('gonogo_cap_auth'); } catch(e){} showLogin(m.replace(/^[\s\S]*AUTH:\s*/, '')); throw 'AUTH'; } throw m; }
+  return j.data;
+}
+
+/* ---------- Login ---------- */
+async function showLogin(msg){
+  STEP = 'login';
+  $('app').innerHTML = '<section><h2>Log in</h2><div class="muted">Same name and PIN as the GO/NOGO dashboard.</div>' +
+    '<label>Name</label><select id="lgName"><option>Loading…</option></select><label>PIN</label><input id="lgPin" type="password" inputmode="numeric" autocomplete="current-password">' +
+    '<div class="row"><button class="primary big" id="lgGo">Log in</button></div><div class="err" id="lgErr">'+esc(msg || '')+'</div></section>';
+  $('lgGo').onclick = doLogin; $('lgPin').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
+  try { const n = await api('loginNames'); let last = ''; try { last = localStorage.getItem('gonogo_cap_name') || ''; } catch(e){}
+    $('lgName').innerHTML = n.map(x => '<option'+(x.name === last ? ' selected' : '')+'>'+esc(x.name)+'</option>').join(''); }
+  catch(e) { if (e !== 'AUTH') $('lgErr').textContent = e; }
+}
+async function doLogin(){
+  $('lgGo').disabled = true; $('lgErr').textContent = '';
+  try { const r = await api('login', {name:$('lgName').value, pin:$('lgPin').value.trim(), device:'Phone camera page'});
+    AUTH = r.token; ME = {name:r.name, role:r.role};
+    try { localStorage.setItem('gonogo_cap_auth', AUTH); localStorage.setItem('gonogo_cap_name', r.name); } catch(e){}
+    home(); }
+  catch(e) { $('lgErr').textContent = e; $('lgGo').disabled = false; }
+}
+
+/* ---------- Home ---------- */
+function home(){
+  STEP = 'home';
+  $('app').innerHTML = (MSG ? '<section class="ok">'+MSG+'</section>' : '') +
+    '<section><h2>Capture Findings</h2><div class="muted">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
+    '<div class="row"><button class="primary big" id="hCam">📷 Open camera</button></div>' +
+    '<div class="row"><button id="hPick">🖼 Upload photos from gallery</button></div>' +
+    '<div class="hint">Take one or more photos of the same finding → <b>Next</b> → fill Area, Department, Process, Issue once → Save. All photos are saved together as one finding.</div></section>' +
+    '<section><div class="row"><button id="hDash">↩ Open dashboard</button><button id="hOut">Log out</button></div></section>';
+  $('hCam').onclick = openCam; $('hPick').onclick = () => $('pickIn').click();
+  $('hDash').onclick = () => { location.href = DASH; };
+  $('hOut').onclick = () => { AUTH = ''; ME = null; try { localStorage.removeItem('gonogo_cap_auth'); } catch(e){} showLogin('You have logged out.'); };
+}
+
+/* ---------- Camera (inside this page — no Retry / OK, nothing is lost) ---------- */
+async function openCam(){
+  try {
+    const st = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}});
+    CAM = {st, shot:null}; $('camV').srcObject = st; try { await $('camV').play(); } catch(e){}
+    $('cam').classList.add('on'); camLive();
+  } catch(e) {
+    alertMsg('Camera could not start' + (e && e.name === 'NotAllowedError' ? ' — please allow camera permission for this page in the browser.' : '.') + ' Opening the phone camera instead.');
+    $('camIn').click();
+  }
+}
+function alertMsg(t){ const el = $('app').querySelector('.err') || $('app').appendChild(Object.assign(document.createElement('div'), {className:'err'})); el.textContent = t; }
+function camLive(){
+  CAM.shot = null; $('camShot').classList.add('hide'); $('camV').classList.remove('hide');
+  $('camTop').textContent = PH.length ? plural(PH.length, 'photo') + ' taken' : 'Point at the finding and press the white button';
+  $('camBar').innerHTML = '<button id="cX">✕ Close</button><button class="snap" id="cSnap" aria-label="Take photo"></button>' + (PH.length ? '<button class="primary" id="cGo">Next ➜</button>' : '<span class="sp"></span>');
+  $('cX').onclick = () => camClose(); $('cSnap').onclick = snap; if ($('cGo')) $('cGo').onclick = () => { camClose(); details(); };
+}
+function snap(){
+  const v = $('camV'), w = v.videoWidth, h = v.videoHeight; if (!w || !h) return;
+  const s = Math.min(1, 1600 / Math.max(w, h)), c = document.createElement('canvas');
+  c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  c.toBlob(b => {
+    if (!b) return;
+    CAM.shot = b; const u = URL.createObjectURL(b); $('camShot').src = u; $('camShot').classList.remove('hide'); $('camV').classList.add('hide');
+    $('camTop').textContent = 'Photo ' + (PH.length + 1);
+    $('camBar').innerHTML = '<button id="cRe">↺ Retake</button><button id="cMore">📷 Add more photo</button><button class="primary" id="cNext">Next ➜</button>';
+    $('cRe').onclick = () => { URL.revokeObjectURL(u); camLive(); };
+    $('cMore').onclick = () => { URL.revokeObjectURL(u); keep(CAM.shot); camLive(); };
+    $('cNext').onclick = () => { URL.revokeObjectURL(u); keep(CAM.shot); camClose(); details(); };
+  }, 'image/jpeg', 0.85);
+}
+function keep(blob){ PH.push({k:++SEQ, blob, url:URL.createObjectURL(blob), up:null}); MSG = ''; }
+function camClose(){ if (CAM && CAM.st) CAM.st.getTracks().forEach(t => t.stop()); CAM = null; $('camV').srcObject = null; $('cam').classList.remove('on'); if (STEP !== 'details') (PH.length ? details() : home()); }
+
+/* Gallery / phone-camera fallback: shrink to max 1600 px JPEG */
+function shrink(file){
+  return new Promise(ok => { const u = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { const s = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u); c.toBlob(b => ok(b || file), 'image/jpeg', 0.82); };
+    img.onerror = () => { URL.revokeObjectURL(u); ok(file); }; img.src = u; });
+}
+async function addFiles(list){ for (const f of [...list].filter(f => /^image\//i.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''))) keep(await shrink(f)); if (PH.length) details(); }
+$('pickIn').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+$('camIn').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+
+/* ---------- Details: ONE form for all photos ---------- */
+function details(){
+  STEP = 'details'; const dis = BUSY ? ' disabled' : '';
+  const f = (k, l, req, ta) => '<label>'+l+(req ? ' *' : '')+'</label>' + (ta ? '<textarea rows="3" data-f="'+k+'" placeholder="What is the finding?"'+dis+'>'+esc(FORM[k])+'</textarea>' : '<input data-f="'+k+'" value="'+esc(FORM[k])+'"'+dis+'>');
+  $('app').innerHTML = '<section><h2>'+plural(PH.length, 'photo')+' · one finding</h2>' +
+    '<div class="shots">' + PH.map((p, i) => '<div><img src="'+p.url+'" alt="Photo '+(i+1)+'"><span class="n">'+(i+1)+'</span>' + (BUSY ? '' : '<button class="x" data-del="'+p.k+'">✕</button>') + (p.up ? '<span class="up">✓</span>' : '') + '</div>').join('') + '</div>' +
+    '<div class="row"><button id="dMore"'+dis+'>📷 Add more photo</button><button id="dPick"'+dis+'>🖼 Gallery</button></div>' +
+    f('area', 'Area', 1) + f('dept', 'Department', 1) + f('process', 'Process', 0) + f('issue', 'Issue', 1, 1) +
+    '<div class="hint">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
+    '<div class="row"><button class="primary big" id="dSave"'+dis+'>'+(BUSY ? 'Saving…' : 'Save finding · '+plural(PH.length, 'photo'))+'</button></div>' +
+    '<div class="row"><button id="dCancel"'+dis+'>Cancel</button></div><div class="muted" id="dProg"></div><div class="err" id="dErr"></div></section>';
+  document.querySelectorAll('[data-f]').forEach(el => el.oninput = () => { FORM[el.dataset.f] = el.value; $('dErr').textContent = ''; });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const i = PH.findIndex(p => p.k === +b.dataset.del); if (i >= 0) { URL.revokeObjectURL(PH[i].url); PH.splice(i, 1); PH.length ? details() : home(); } });
+  $('dMore').onclick = openCam; $('dPick').onclick = () => $('pickIn').click();
+  $('dSave').onclick = save;
+  $('dCancel').onclick = () => { if (!confirm('Remove these photos and details?')) return; PH.forEach(p => URL.revokeObjectURL(p.url)); PH = []; FORM.issue = ''; home(); };
+}
+const b64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no('Could not read the photo.'); r.readAsDataURL(blob); });
+async function save(){
+  const v = {}; ['area','dept','process','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
+  if (!v.area || !v.dept || !v.issue) { $('dErr').textContent = 'Please fill Area, Department and Issue.'; return; }
+  BUSY = true; details(); const n = PH.length;
+  try {
+    for (let i = 0; i < n; i++) { const p = PH[i]; if (p.up) continue;
+      $('dProg').textContent = 'Uploading photo ' + (i + 1) + ' of ' + n + '…';
+      p.up = await api('uploadFindingPhoto', {area:v.area, issue:v.issue, mime:'image/jpeg', data:await b64(p.blob)}); details(); }
+    $('dProg').textContent = 'Saving finding…';
+    const r = await api('addFinding', Object.assign({photos: PH.map(p => p.up)}, v));
+    BUSY = false; PH.forEach(p => URL.revokeObjectURL(p.url)); PH = []; FORM.issue = '';
+    MSG = '✓ Saved as <b>'+esc(r.id)+'</b> with '+plural(n, 'photo')+' · Area, Department and Process are kept for the next finding.';
+    home();
+  } catch(e) {
+    BUSY = false; if (e === 'AUTH') return; details();
+    $('dErr').textContent = 'Not saved: ' + e + ' — press Save again (photos already uploaded are not sent twice).';
+  }
+}
+
+/* ---------- Start ---------- */
+(async () => {
+  if (!AUTH) return showLogin('');
+  try { ME = await api('whoAmI'); home(); } catch(e) { if (e !== 'AUTH') { $('app').innerHTML = '<section><div class="err">'+esc(e)+'</div><div class="row"><button class="primary" onclick="location.reload()">Try again</button></div></section>'; } }
+})();
+window.addEventListener('beforeunload', e => { if (PH.length && !BUSY) { e.preventDefault(); e.returnValue = ''; } });
+</script>
+</body>
+</html>
