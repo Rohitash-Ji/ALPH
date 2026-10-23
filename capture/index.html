@@ -115,7 +115,7 @@ function home(){
     '<section><h2>Capture Findings</h2><div class="muted">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
     '<div class="row"><button class="primary big" id="hCam">📷 Open camera</button></div>' +
     '<div class="row"><button id="hPick">🖼 Upload photos from gallery</button></div>' +
-    '<div class="hint">Take one or more photos of the same finding → <b>Next</b> → fill Area, Department, Process, Issue once → Save. All photos are saved together as one finding.</div></section>' +
+    '<div class="hint">Take one or more photos of the same finding → <b>Next</b> → fill Department, persons and Issue once → Save. All photos are saved together as one finding.</div></section>' +
     '<section><div class="row"><button id="hDash">↩ Open dashboard</button><button id="hOut">Log out</button></div></section>';
   $('hCam').onclick = openCam; $('hPick').onclick = () => $('pickIn').click();
   $('hDash').onclick = () => { location.href = DASH; };
@@ -178,9 +178,9 @@ function details(){
   $('app').innerHTML = '<section><h2>'+plural(PH.length, 'photo')+' · one finding</h2>' +
     '<div class="shots">' + PH.map((p, i) => '<div><img src="'+p.url+'" alt="Photo '+(i+1)+'"><span class="n">'+(i+1)+'</span>' + (BUSY ? '' : '<button class="x" data-del="'+p.k+'">✕</button>') + (p.up ? '<span class="up">✓</span>' : '') + '</div>').join('') + '</div>' +
     '<div class="row"><button id="dMore"'+dis+'>📷 Add more photo</button><button id="dPick"'+dis+'>🖼 Gallery</button></div>' +
-    f('area', 'Area', 1) + sl('dept', 'Department', 1, DEPTS.map(x => x[0])) + sl('acc', 'Accountable Person', 0, uniq(DEPTS.map(x => x[1]))) +
+    sl('dept', 'Department', 1, DEPTS.map(x => x[0])) + sl('acc', 'Accountable Person', 0, uniq(DEPTS.map(x => x[1]))) +
     sl('rdept', 'Responsible Department', 0, RESP.map(x => x[0])) + sl('rperson', 'Responsible Person', 0, RESP.map(x => x[1])) +
-    f('process', 'Process', 0) + f('issue', 'Issue', 1, 1) +
+    f('issue', 'Issue', 1, 1) +
     '<div class="hint">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
     '<div class="row"><button class="primary big" id="dSave"'+dis+'>'+(BUSY ? 'Saving…' : 'Save finding · '+plural(PH.length, 'photo'))+'</button></div>' +
     '<div class="row"><button id="dCancel"'+dis+'>Cancel</button></div><div class="muted" id="dProg"></div><div class="err" id="dErr"></div></section>';
@@ -194,17 +194,17 @@ function details(){
 }
 const b64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no('Could not read the photo.'); r.readAsDataURL(blob); });
 async function save(){
-  const v = {}; ['area','dept','acc','rdept','rperson','process','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
-  if (!v.area || !v.dept || !v.issue) { $('dErr').textContent = 'Please fill Area, Department and Issue.'; return; }
+  const v = {}; ['dept','acc','rdept','rperson','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
+  if (!v.dept || !v.issue) { $('dErr').textContent = 'Please fill Department and Issue.'; return; }
   BUSY = true; details(); const n = PH.length;
   try {
     for (let i = 0; i < n; i++) { const p = PH[i]; if (p.up) continue;
       $('dProg').textContent = 'Uploading photo ' + (i + 1) + ' of ' + n + '…';
-      p.up = await api('uploadFindingPhoto', {area:v.area, issue:v.issue, mime:'image/jpeg', data:await b64(p.blob)}); details(); }
+      p.up = await api('uploadFindingPhoto', {area:v.dept, issue:v.issue, mime:'image/jpeg', data:await b64(p.blob)}); details(); }
     $('dProg').textContent = 'Saving finding…';
     const r = await api('addFinding', Object.assign({photos: PH.map(p => p.up)}, v));
     BUSY = false; PH.forEach(p => URL.revokeObjectURL(p.url)); PH = []; FORM.issue = '';
-    MSG = '✓ Saved as <b>'+esc(r.id)+'</b> with '+plural(n, 'photo')+' · Area, Department and Process are kept for the next finding.';
+    MSG = '✓ Saved as <b>'+esc(r.id)+'</b> with '+plural(n, 'photo')+' · Department and the persons are kept for the next finding.';
     home();
   } catch(e) {
     BUSY = false; if (e === 'AUTH') return; details();
