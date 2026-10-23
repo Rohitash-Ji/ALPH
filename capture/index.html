@@ -216,7 +216,7 @@ async function save(){
     $('dProg').textContent = 'Saving finding…';
     const r = await api('addFinding', Object.assign({photos: PH.map(p => p.up)}, v));
     BUSY = false; PH.forEach(p => URL.revokeObjectURL(p.url)); PH = []; FORM.issue = '';
-    MSG = '✓ Saved as <b>'+esc(r.id)+'</b> with '+plural(n, 'photo')+' · Department and the persons are kept for the next finding.';
+    MSG = '✓ Saved as <b>'+esc((r.ids || [r.id]).join(', '))+'</b>'+((r.ids || []).length > 1 ? ' (one row per responsible department)' : '')+' with '+plural(n, 'photo')+' · Department and the persons are kept for the next finding.';
     home();
   } catch(e) {
     BUSY = false; if (e === 'AUTH') return; details();
