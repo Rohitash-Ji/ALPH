@@ -65,7 +65,14 @@ const DASH = 'https://script.google.com/macros/s/AKfycbyb-iR4VG9Wb53bgFUUryAB3zG
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
-let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', dept:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
+/* Department → Accountable Person, and Responsible Department → Responsible Person (lists from Quality). */
+const DEPTS = [['Main Gate','Ram Naresh Ji'],['Incoming','Hirendra'],['Store','Hirendra'],['Raw Material Area','Hirendra'],['FG Warehouse','Hirendra'],
+  ['Die Cutting Kailash','VINOD'],['Pad Making','VINOD'],['Pad Cutting','IMRAN'],['Sheet Cutting','KAMLESH'],['Reel to Die Cutting','VINOD'],['Paper Bag Area','VINOD'],
+  ['CHEMICAL AREA','BIRJU'],['Flexo Area','VINOD'],['IKEA PACKING','MAHRUKH'],['NON IKEA PACKING','OM PRAKASH'],['IKEA MAKING','AARIF BHAI'],['NON IKEA MAKING','ISLAM BHAI'],
+  ['PAPER MACHE AUTOMATIC','PATHAN BHAI'],['PAPER MACHE MANNUAL','ISLAM BHAI'],['OFFSET','KAMLESH'],['SCREEN','ASHOK SCREEN'],['3rd Floor Warehouse','HIRENDRA']];
+const RESP = [['QUALITY','RAJESH SHARMA'],['HOUSE KEEPING','INDER'],['HR','BHUPENDRA/KUBER JI'],['MAINTENANCE','KHURSHID JI / RAM NIWAS JI']];
+const uniq = a => a.filter((x, i) => a.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i);
+let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', dept:'', acc:'', rdept:'', rperson:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
 try { AUTH = localStorage.getItem('gonogo_cap_auth') || ''; } catch(e){}
 /* The dashboard passes its login in the link (#t=…) so nobody has to log in twice; it is removed from the address bar at once. */
 (() => { const m = /[#&]t=([^&]+)/.exec(location.hash || ''); if (m) { AUTH = decodeURIComponent(m[1]); try { localStorage.setItem('gonogo_cap_auth', AUTH); } catch(e){} history.replaceState(null, '', location.pathname); } })();
@@ -166,14 +173,20 @@ $('camIn').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 function details(){
   STEP = 'details'; const dis = BUSY ? ' disabled' : '';
   const f = (k, l, req, ta) => '<label>'+l+(req ? ' *' : '')+'</label>' + (ta ? '<textarea rows="3" data-f="'+k+'" placeholder="What is the finding?"'+dis+'>'+esc(FORM[k])+'</textarea>' : '<input data-f="'+k+'" value="'+esc(FORM[k])+'"'+dis+'>');
+  const sl = (k, l, req, opts) => '<label>'+l+(req ? ' *' : '')+'</label><select data-f="'+k+'"'+dis+'><option value="">— Select —</option>' +
+    opts.concat(FORM[k] && opts.indexOf(FORM[k]) < 0 ? [FORM[k]] : []).map(o => '<option'+(o === FORM[k] ? ' selected' : '')+'>'+esc(o)+'</option>').join('') + '</select>';
   $('app').innerHTML = '<section><h2>'+plural(PH.length, 'photo')+' · one finding</h2>' +
     '<div class="shots">' + PH.map((p, i) => '<div><img src="'+p.url+'" alt="Photo '+(i+1)+'"><span class="n">'+(i+1)+'</span>' + (BUSY ? '' : '<button class="x" data-del="'+p.k+'">✕</button>') + (p.up ? '<span class="up">✓</span>' : '') + '</div>').join('') + '</div>' +
     '<div class="row"><button id="dMore"'+dis+'>📷 Add more photo</button><button id="dPick"'+dis+'>🖼 Gallery</button></div>' +
-    f('area', 'Area', 1) + f('dept', 'Department', 1) + f('process', 'Process', 0) + f('issue', 'Issue', 1, 1) +
+    f('area', 'Area', 1) + sl('dept', 'Department', 1, DEPTS.map(x => x[0])) + sl('acc', 'Accountable Person', 0, uniq(DEPTS.map(x => x[1]))) +
+    sl('rdept', 'Responsible Department', 0, RESP.map(x => x[0])) + sl('rperson', 'Responsible Person', 0, RESP.map(x => x[1])) +
+    f('process', 'Process', 0) + f('issue', 'Issue', 1, 1) +
     '<div class="hint">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
     '<div class="row"><button class="primary big" id="dSave"'+dis+'>'+(BUSY ? 'Saving…' : 'Save finding · '+plural(PH.length, 'photo'))+'</button></div>' +
     '<div class="row"><button id="dCancel"'+dis+'>Cancel</button></div><div class="muted" id="dProg"></div><div class="err" id="dErr"></div></section>';
-  document.querySelectorAll('[data-f]').forEach(el => el.oninput = () => { FORM[el.dataset.f] = el.value; $('dErr').textContent = ''; });
+  document.querySelectorAll('[data-f]').forEach(el => el.oninput = el.onchange = () => { const k = el.dataset.f; FORM[k] = el.value; $('dErr').textContent = '';
+    const fill = (key, list) => { const hit = list.find(x => x[0] === el.value); FORM[key] = hit ? hit[1] : ''; const t = document.querySelector('[data-f="'+key+'"]'); if (t) t.value = FORM[key]; };
+    if (k === 'dept') fill('acc', DEPTS); if (k === 'rdept') fill('rperson', RESP); });
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const i = PH.findIndex(p => p.k === +b.dataset.del); if (i >= 0) { URL.revokeObjectURL(PH[i].url); PH.splice(i, 1); PH.length ? details() : home(); } });
   $('dMore').onclick = openCam; $('dPick').onclick = () => $('pickIn').click();
   $('dSave').onclick = save;
@@ -181,7 +194,7 @@ function details(){
 }
 const b64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no('Could not read the photo.'); r.readAsDataURL(blob); });
 async function save(){
-  const v = {}; ['area','dept','process','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
+  const v = {}; ['area','dept','acc','rdept','rperson','process','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
   if (!v.area || !v.dept || !v.issue) { $('dErr').textContent = 'Please fill Area, Department and Issue.'; return; }
   BUSY = true; details(); const n = PH.length;
   try {
