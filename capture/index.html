@@ -75,7 +75,7 @@ const DEPTS = [['Main Gate','Ram Naresh Ji'],['Incoming','Hirendra'],['Store','H
   ['Die Cutting Kailash','VINOD'],['Pad Making','VINOD'],['Pad Cutting','IMRAN'],['Sheet Cutting','KAMLESH'],['Reel to Die Cutting','VINOD'],['Paper Bag Area','VINOD'],
   ['CHEMICAL AREA','BIRJU'],['Flexo Area','VINOD'],['IKEA PACKING','MAHRUKH'],['NON IKEA PACKING','OM PRAKASH'],['IKEA MAKING','AARIF BHAI'],['NON IKEA MAKING','ISLAM BHAI'],
   ['PAPER MACHE AUTOMATIC','PATHAN BHAI'],['PAPER MACHE MANNUAL','ISLAM BHAI'],['OFFSET','KAMLESH'],['SCREEN','ASHOK SCREEN'],['3rd Floor Warehouse','HIRENDRA']];
-const RESP = [['QUALITY','RAJESH SHARMA'],['HOUSE KEEPING','INDER'],['HR','BHUPENDRA/KUBER JI'],['MAINTENANCE','KHURSHID JI / RAM NIWAS JI']];
+const RESP = [['QUALITY','RAJESH SHARMA'],['HOUSE KEEPING','INDER'],['HR','BHUPENDRA'],['MAINTENANCE','KHURSHID/KUBER']];
 const rdSel = () => String(FORM.rdept || '').split(',').map(x => x.trim()).filter(Boolean);
 const uniq = a => a.filter((x, i) => a.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i);
 let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', dept:'', acc:'', rdept:'', rperson:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
