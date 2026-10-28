@@ -150,8 +150,9 @@ function snap(){
   const v = $('camV'), w = v.videoWidth, h = v.videoHeight; if (!w || !h) return;
   const s = Math.min(1, 1600 / Math.max(w, h)), c = document.createElement('canvas');
   c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-  c.toBlob(b => {
-    if (!b) return;
+  c.toBlob(async b0 => {
+    if (!b0) return;
+    const b = await fitBlob(b0); if (!b) return alertMsg('Photo could not be reduced to 500 KB. Please take it again.');
     CAM.shot = b; const u = URL.createObjectURL(b); $('camShot').src = u; $('camShot').classList.remove('hide'); $('camV').classList.add('hide');
     $('camTop').textContent = 'Photo ' + (PH.length + 1);
     $('camBar').innerHTML = '<button id="cRe">↺ Retake</button><button id="cMore">📷 Add more photo</button><button class="primary" id="cNext">Next ➜</button>';
@@ -163,15 +164,36 @@ function snap(){
 function keep(blob){ PH.push({k:++SEQ, blob, url:URL.createObjectURL(blob), up:null}); MSG = ''; }
 function camClose(){ if (CAM && CAM.st) CAM.st.getTracks().forEach(t => t.stop()); CAM = null; $('camV').srcObject = null; $('cam').classList.remove('on'); if (STEP !== 'details') (PH.length ? details() : home()); }
 
-/* Gallery / phone-camera fallback: shrink to max 1600 px JPEG */
-function shrink(file){
-  return new Promise(ok => { const u = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { const s = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
-      c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(u); c.toBlob(b => ok(b || file), 'image/jpeg', 0.82); };
-    img.onerror = () => { URL.revokeObjectURL(u); ok(file); }; img.src = u; });
+/* Photo size rule (28-Oct): every photo is a JPEG of at most 500 KB (aim 100–500 KB).
+   Max 1600 px / quality 0.85 first; lower the quality, then the size, until ≤ 500 KB;
+   under 100 KB → saved again at a higher quality if that still fits. null = could not read / reduce. */
+const IMG_MAX = 500 * 1024, IMG_MIN = 100 * 1024;
+function fitBlob(file){
+  return new Promise(ok => {
+    const u = URL.createObjectURL(file), img = new Image();
+    img.onerror = () => { URL.revokeObjectURL(u); ok(file.size <= IMG_MAX && /jpe?g/i.test(file.type || '') ? file : null); };
+    img.onload = async () => {
+      try {
+        const W = img.naturalWidth, H = img.naturalHeight;
+        const enc = (side, q) => new Promise(r => { const s = Math.min(1, side / Math.max(W, H)), c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(W * s)); c.height = Math.max(1, Math.round(H * s));
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+          c.toBlob(b => r(b), 'image/jpeg', q); });
+        let side = 1600, q = 0.85, b = await enc(side, q), n = 0;
+        while (b && b.size > IMG_MAX && n++ < 20) { if (q > 0.56) q -= 0.08; else { side = Math.round(side * 0.8); q = 0.8; } b = await enc(side, q); }
+        if (b && b.size < IMG_MIN) { const hq = await enc(side, 0.95); if (hq && hq.size <= IMG_MAX) b = hq; }
+        URL.revokeObjectURL(u); ok(b && b.size <= IMG_MAX ? b : null);
+      } catch(e){ URL.revokeObjectURL(u); ok(null); }
+    };
+    img.src = u;
+  });
 }
-async function addFiles(list){ for (const f of [...list].filter(f => /^image\//i.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''))) keep(await shrink(f)); if (PH.length) details(); }
+async function addFiles(list){
+  let bad = 0;
+  for (const f of [...list].filter(f => /^image\//i.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''))) { const b = await fitBlob(f); if (b) keep(b); else bad++; }
+  if (bad) alertMsg(bad + ' photo' + (bad > 1 ? 's' : '') + ' could not be reduced to 500 KB on this phone — please take ' + (bad > 1 ? 'them' : 'it') + ' with the camera button.');
+  if (PH.length) details();
+}
 $('pickIn').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 $('camIn').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 
