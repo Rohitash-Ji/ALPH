@@ -70,15 +70,34 @@ const DASH = 'https://script.google.com/macros/s/AKfycbyb-iR4VG9Wb53bgFUUryAB3zG
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
-/* Department → Accountable Person, and Responsible Department → Responsible Person (lists from Quality). */
-const DEPTS = [['Main Gate','Ram Naresh Ji'],['Incoming','Hirendra'],['Store','Hirendra'],['Raw Material Area','Hirendra'],['FG Warehouse','Hirendra'],
-  ['Die Cutting Kailash','VINOD'],['Pad Making','VINOD'],['Pad Cutting','IMRAN'],['Sheet Cutting','KAMLESH'],['Reel to Die Cutting','VINOD'],['Paper Bag Area','VINOD'],
-  ['CHEMICAL AREA','BIRJU'],['Flexo Area','VINOD'],['IKEA PACKING','MAHRUKH'],['NON IKEA PACKING','OM PRAKASH'],['IKEA MAKING','AARIF BHAI'],['NON IKEA MAKING','ISLAM BHAI'],
-  ['PAPER MACHE AUTOMATIC','PATHAN BHAI'],['PAPER MACHE MANNUAL','ISLAM BHAI'],['OFFSET','KAMLESH'],['SCREEN','ASHOK SCREEN'],['3rd Floor Warehouse','HIRENDRA']];
-const RESP = [['QUALITY','RAJESH SHARMA'],['HOUSE KEEPING','INDER'],['HR','BHUPENDRA'],['MAINTENANCE','KHURSHID/KUBER']];
+/* Block/Floor + Department → Accountable Person, and Responsible Department → Responsible Person (Quality list, 01-Nov-2026).
+   PRODUCTION → the Accountable Person of the chosen Block/Floor + Department. */
+const MASTER = [['MAIN GATE','Main Gate','Ram Naresh Ji'],['A-BLOCK GF','Incoming','Hirendra'],['A-BLOCK BASEMENT','Store','Hirendra'],
+  ['A-BLOCK GF','Raw Material Area','Hirendra'],['A-BLOCK GF','FG Warehouse','Hirendra'],['A-BLOCK GF','Die Cutting Kailash','VINOD'],
+  ['A-BLOCK GF','Pad Making','VINOD'],['A-BLOCK FF','Pad Making','VINOD'],['A-BLOCK FF','Pad Cutting','IMRAN'],['A-BLOCK GF','Pad Cutting','IMRAN'],
+  ['A-BLOCK BASEMENT','Sheet Cutting','KAMLESH'],['A-BLOCK GF','Reel to Die Cutting','VINOD'],['A-BLOCK GF','Paper Bag Area','VINOD'],
+  ['A-BLOCK BASEMENT','CHEMICAL AREA','BIRJU'],['A-BLOCK GF','Flexo Area','VINOD'],['A-BLOCK GF','IKEA PACKING','MAHRUKH'],
+  ['A-BLOCK FF','NON IKEA PACKING','OM PRAKASH'],['B-BLOCK FF','IKEA MAKING','SADDAM BHAI'],['B-BLOCK FF','IKEA MAKING','AARIF BHAI'],
+  ['A-BLOCK FF','NON IKEA MAKING','ISLAM BHAI'],['B-BLOCK GF','PAPER MACHE AUTOMATIC','PATHAN BHAI'],['B-BLOCK GF','PAPER MACHE MANNUAL','ISLAM BHAI'],
+  ['A-BLOCK BASEMENT','OFFSET','KAMLESH'],['A-BLOCK BASEMENT','SCREEN','ASHOK SCREEN'],['A-BLOCK SF','2ND Floor Warehouse','HIRENDRA']];
+const RESP = [['QUALITY','RAJESH SHARMA/VARUN MATHUR'],['HOUSE KEEPING','INDER'],['HR','BHUPENDRA'],['MAINTENANCE','KHURSHID/KUBER'],['STORE','NIKUNJ PRASAD'],['PRODUCTION','']];
+const BLOCKS = MASTER.map(x => x[0]).filter((x, i, a) => a.indexOf(x) === i);
+const deptsOf = b => MASTER.filter(x => !b || x[0] === b).map(x => x[1]).filter((x, i, a) => a.indexOf(x) === i);
+const blocksOf = d => MASTER.filter(x => x[1] === d).map(x => x[0]).filter((x, i, a) => a.indexOf(x) === i);
+const accOf = (b, d) => MASTER.filter(x => x[1] === d && (!b || x[0] === b)).map(x => x[2]).filter((x, i, a) => a.indexOf(x) === i).join('/');
+/* Accountable Person SADDAM / ISLAM / AARIF → PRODUCTION is ticked automatically (and unticked again if it was auto-ticked
+   and the Accountable Person changes to someone else). Manual ticks are never removed. */
+const PROD_RX = /\b(saddam|islam|aarif)\b/i;
+function prodAuto(){ const on = rdSel(), has = on.indexOf('PRODUCTION') >= 0;
+  if (PROD_RX.test(FORM.acc || '')) { if (!has) { on.push('PRODUCTION'); FORM.prodAuto = true; } }
+  else if (has && FORM.prodAuto) { on.splice(on.indexOf('PRODUCTION'), 1); FORM.prodAuto = false; }
+  FORM.rdept = RESP.map(x => x[0]).filter(x => on.indexOf(x) >= 0).join(', '); }
+const respOf = x => x[0] === 'PRODUCTION' ? String(FORM.acc || '').trim() : x[1];
+/* Responsible Person from the ticked departments (PRODUCTION follows the Accountable Person). */
+function rdUpd(){ const on = RESP.filter(x => rdSel().indexOf(x[0]) >= 0); FORM.rperson = on.map(respOf).join(', '); const t = $('rPer'); if (t) t.value = FORM.rperson; }
 const rdSel = () => String(FORM.rdept || '').split(',').map(x => x.trim()).filter(Boolean);
 const uniq = a => a.filter((x, i) => a.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i);
-let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', dept:'', acc:'', rdept:'', rperson:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
+let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', block:'', dept:'', acc:'', rdept:'', rperson:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
 try { AUTH = localStorage.getItem('gonogo_cap_auth') || ''; } catch(e){}
 /* The dashboard passes its login in the link (#t=…) so nobody has to log in twice; it is removed from the address bar at once. */
 (() => { const m = /[#&]t=([^&]+)/.exec(location.hash || ''); if (m) { AUTH = decodeURIComponent(m[1]); try { localStorage.setItem('gonogo_cap_auth', AUTH); } catch(e){} history.replaceState(null, '', location.pathname); } })();
@@ -206,7 +225,7 @@ function details(){
   $('app').innerHTML = '<section><h2>'+plural(PH.length, 'photo')+' · one finding</h2>' +
     '<div class="shots">' + PH.map((p, i) => '<div><img src="'+p.url+'" alt="Photo '+(i+1)+'"><span class="n">'+(i+1)+'</span>' + (BUSY ? '' : '<button class="x" data-del="'+p.k+'">✕</button>') + (p.up ? '<span class="up">✓</span>' : '') + '</div>').join('') + '</div>' +
     '<div class="row"><button id="dMore"'+dis+'>📷 Add more photo</button><button id="dPick"'+dis+'>🖼 Gallery</button></div>' +
-    sl('dept', 'Department', 1, DEPTS.map(x => x[0])) + sl('acc', 'Accountable Person', 0, uniq(DEPTS.map(x => x[1]))) +
+    sl('block', 'Block/Floor', 0, BLOCKS) + sl('dept', 'Department', 1, deptsOf(FORM.block)) + sl('acc', 'Accountable Person', 0, uniq(MASTER.map(x => x[2]).concat(MASTER.filter(x => x[1] === 'IKEA MAKING').length > 1 ? [accOf('', 'IKEA MAKING')] : []))) +
     '<label>Responsible Department <span style="font-weight:400">(tick one or more)</span></label><div class="chk">' +
       RESP.map(x => '<label>'+esc(x[0])+'<input type="checkbox" data-rd value="'+esc(x[0])+'"'+(rdSel().indexOf(x[0]) >= 0 ? ' checked' : '')+dis+'></label>').join('') + '</div>' +
     '<label>Responsible Person</label><textarea id="rPer" rows="2" readonly placeholder="Filled from the departments ticked above">'+esc(FORM.rperson)+'</textarea>' +
@@ -215,12 +234,13 @@ function details(){
     '<div class="row"><button class="primary big" id="dSave"'+dis+'>'+(BUSY ? 'Saving…' : 'Save finding · '+plural(PH.length, 'photo'))+'</button></div>' +
     '<div class="row"><button id="dCancel"'+dis+'>Cancel</button></div><div class="muted" id="dProg"></div><div class="err" id="dErr"></div></section>';
   document.querySelectorAll('[data-f]').forEach(el => el.oninput = el.onchange = () => { const k = el.dataset.f; FORM[k] = el.value; $('dErr').textContent = '';
-    const fill = (key, list) => { const hit = list.find(x => x[0] === el.value); FORM[key] = hit ? hit[1] : ''; const t = document.querySelector('[data-f="'+key+'"]'); if (t) t.value = FORM[key]; };
-    if (k === 'dept') fill('acc', DEPTS); });
+    if (k === 'block') { if (FORM.dept && FORM.block && blocksOf(FORM.dept).indexOf(FORM.block) < 0) FORM.dept = ''; FORM.acc = FORM.dept ? accOf(FORM.block, FORM.dept) : ''; prodAuto(); rdUpd(); return details(); }
+    if (k === 'dept') { const bl = blocksOf(FORM.dept); if (!FORM.block && bl.length === 1) FORM.block = bl[0]; FORM.acc = FORM.dept ? accOf(FORM.block, FORM.dept) : ''; prodAuto(); rdUpd(); return details(); }
+    if (k === 'acc') { prodAuto(); rdUpd(); details(); } });
   /* Responsible Department: several can be ticked → Responsible Person = their names joined with ", " */
   document.querySelectorAll('[data-rd]').forEach(c => c.onchange = () => {
     const on = RESP.filter(x => document.querySelector('[data-rd][value="'+x[0]+'"]').checked);
-    FORM.rdept = on.map(x => x[0]).join(', '); FORM.rperson = on.map(x => x[1]).join(', '); $('rPer').value = FORM.rperson; $('dErr').textContent = ''; });
+    FORM.rdept = on.map(x => x[0]).join(', '); if (on.every(x => x[0] !== 'PRODUCTION')) FORM.prodAuto = false; rdUpd(); $('dErr').textContent = ''; });
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const i = PH.findIndex(p => p.k === +b.dataset.del); if (i >= 0) { URL.revokeObjectURL(PH[i].url); PH.splice(i, 1); PH.length ? details() : home(); } });
   $('dMore').onclick = openCam; $('dPick').onclick = () => $('pickIn').click();
   $('dSave').onclick = save;
@@ -228,8 +248,9 @@ function details(){
 }
 const b64 = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no('Could not read the photo.'); r.readAsDataURL(blob); });
 async function save(){
-  const v = {}; ['dept','acc','rdept','rperson','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
+  rdUpd(); const v = {}; ['block','dept','acc','rdept','rperson','issue'].forEach(k => v[k] = String(FORM[k] || '').trim());
   if (!v.dept || !v.issue) { $('dErr').textContent = 'Please fill Department and Issue.'; return; }
+  if (rdSel().indexOf('PRODUCTION') >= 0 && !v.acc) { $('dErr').textContent = 'PRODUCTION is ticked — please choose Block/Floor and Department (Accountable Person) first.'; return; }
   BUSY = true; details(); const n = PH.length;
   try {
     for (let i = 0; i < n; i++) { const p = PH[i]; if (p.up) continue;
