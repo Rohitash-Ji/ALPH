@@ -100,6 +100,10 @@ const uniq = a => a.filter((x, i) => a.findIndex(y => y.toLowerCase() === x.toLo
 let AUTH = '', ME = null, PH = [], SEQ = 0, FORM = {area:'', block:'', dept:'', acc:'', rdept:'', rperson:'', process:'', issue:''}, MSG = '', BUSY = false, CAM = null, STEP = 'home';
 try { AUTH = localStorage.getItem('gonogo_cap_auth') || ''; } catch(e){}
 /* The dashboard passes its login in the link (#t=…) so nobody has to log in twice; it is removed from the address bar at once. */
+/* Resolve mode (03-Nov): the dashboard's Resolve › Capture photo opens this page with #t=…&res=F-0155&row=123
+   so the after-fix photo is taken with the in-page camera (the phone camera app reloads the dashboard and the photo is lost). */
+let RES = null;
+(() => { const a = /[#&]res=([^&]+)/.exec(location.hash || ''), b = /[#&]row=(\d+)/.exec(location.hash || ''); if (a && b) RES = {id: decodeURIComponent(a[1]), row: +b[1], blob: null, url: '', note: '', info: null, done: ''}; })();
 (() => { const m = /[#&]t=([^&]+)/.exec(location.hash || ''); if (m) { AUTH = decodeURIComponent(m[1]); try { localStorage.setItem('gonogo_cap_auth', AUTH); } catch(e){} history.replaceState(null, '', location.pathname); } })();
 
 async function api(fn, arg){
@@ -135,6 +139,7 @@ async function doLogin(){
 
 /* ---------- Home ---------- */
 function home(){
+  if (RES) return resolveView();
   STEP = 'home';
   $('app').innerHTML = (MSG ? '<section class="ok">'+MSG+'</section>' : '') +
     '<section><h2>Capture Findings</h2><div class="muted">User Name: <b>'+esc(ME.name)+'</b> · time stamp is added when saved</div>' +
@@ -162,7 +167,8 @@ function alertMsg(t){ const el = $('app').querySelector('.err') || $('app').appe
 function camLive(){
   CAM.shot = null; $('camShot').classList.add('hide'); $('camV').classList.remove('hide');
   $('camTop').textContent = PH.length ? plural(PH.length, 'photo') + ' taken' : 'Point at the finding and press the white button';
-  $('camBar').innerHTML = '<button id="cX">✕ Close</button><button class="snap" id="cSnap" aria-label="Take photo"></button>' + (PH.length ? '<button class="primary" id="cGo">Next ➜</button>' : '<span class="sp"></span>');
+  if (RES) $('camTop').textContent = 'After-fix photo · ' + RES.id;
+  $('camBar').innerHTML = '<button id="cX">✕ Close</button><button class="snap" id="cSnap" aria-label="Take photo"></button>' + (!RES && PH.length ? '<button class="primary" id="cGo">Next ➜</button>' : '<span class="sp"></span>');
   $('cX').onclick = () => camClose(); $('cSnap').onclick = snap; if ($('cGo')) $('cGo').onclick = () => { camClose(); details(); };
 }
 function snap(){
@@ -173,6 +179,11 @@ function snap(){
     if (!b0) return;
     const b = await fitBlob(b0); if (!b) return alertMsg('Photo could not be reduced to 500 KB. Please take it again.');
     CAM.shot = b; const u = URL.createObjectURL(b); $('camShot').src = u; $('camShot').classList.remove('hide'); $('camV').classList.add('hide');
+    if (RES) { $('camTop').textContent = 'After-fix photo · ' + RES.id;
+      $('camBar').innerHTML = '<button id="cRe">↺ Retake</button><button class="primary" id="cUse">✓ Use photo</button>';
+      $('cRe').onclick = () => { URL.revokeObjectURL(u); camLive(); };
+      $('cUse').onclick = () => { URL.revokeObjectURL(u); resKeep(CAM.shot); camClose(); };
+      return; }
     $('camTop').textContent = 'Photo ' + (PH.length + 1);
     $('camBar').innerHTML = '<button id="cRe">↺ Retake</button><button id="cMore">📷 Add more photo</button><button class="primary" id="cNext">Next ➜</button>';
     $('cRe').onclick = () => { URL.revokeObjectURL(u); camLive(); };
@@ -181,7 +192,7 @@ function snap(){
   }, 'image/jpeg', 0.85);
 }
 function keep(blob){ PH.push({k:++SEQ, blob, url:URL.createObjectURL(blob), up:null}); MSG = ''; }
-function camClose(){ if (CAM && CAM.st) CAM.st.getTracks().forEach(t => t.stop()); CAM = null; $('camV').srcObject = null; $('cam').classList.remove('on'); if (STEP !== 'details') (PH.length ? details() : home()); }
+function camClose(){ if (CAM && CAM.st) CAM.st.getTracks().forEach(t => t.stop()); CAM = null; $('camV').srcObject = null; $('cam').classList.remove('on'); if (RES) return resolveView(); if (STEP !== 'details') (PH.length ? details() : home()); }
 
 /* Photo size rule (28-Oct): every photo is a JPEG of at most 500 KB (aim 100–500 KB).
    Max 1600 px / quality 0.85 first; lower the quality, then the size, until ≤ 500 KB;
@@ -208,6 +219,7 @@ function fitBlob(file){
   });
 }
 async function addFiles(list){
+  if (RES) { const f = [...list][0]; if (!f) return; const b = await fitBlob(f); if (b) resKeep(b); else { resolveView(); alertMsg('This photo could not be reduced to 500 KB on this phone — please take it with the camera button.'); } return; }
   let bad = 0;
   for (const f of [...list].filter(f => /^image\//i.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''))) { const b = await fitBlob(f); if (b) keep(b); else bad++; }
   if (bad) alertMsg(bad + ' photo' + (bad > 1 ? 's' : '') + ' could not be reduced to 500 KB on this phone — please take ' + (bad > 1 ? 'them' : 'it') + ' with the camera button.');
@@ -264,6 +276,50 @@ async function save(){
   } catch(e) {
     BUSY = false; if (e === 'AUTH') return; details();
     $('dErr').textContent = 'Not saved: ' + e + ' — press Save again (photos already uploaded are not sent twice).';
+  }
+}
+
+/* ---------- Resolve (from the dashboard's Resolve › Capture photo) ---------- */
+function resKeep(blob){ if (RES.url) URL.revokeObjectURL(RES.url); RES.blob = blob; RES.url = URL.createObjectURL(blob); resolveView(); }
+async function resolveView(){
+  STEP = 'resolve'; const dis = BUSY ? ' disabled' : '';
+  if (RES.done) {
+    $('app').innerHTML = '<section class="ok">'+RES.done+'</section><section><div class="row"><button class="primary big" id="rDash">↩ Back to dashboard</button></div>' +
+      '<div class="hint">In the dashboard press Refresh to see it.</div></section>';
+    $('rDash').onclick = () => { location.href = DASH; }; return;
+  }
+  if (!RES.info) {
+    $('app').innerHTML = '<section><div class="muted">Loading '+esc(RES.id)+'…</div></section>';
+    try { RES.info = await api('findingBrief', {id: RES.id}); RES.row = RES.info.row || RES.row; }
+    catch(e) { if (e === 'AUTH') return; $('app').innerHTML = '<section><div class="err">'+esc(e)+'</div><div class="row"><button id="rDash">↩ Back to dashboard</button></div></section>'; $('rDash').onclick = () => { location.href = DASH; }; return; }
+  }
+  const x = RES.info;
+  $('app').innerHTML = '<section><h2>Resolve '+esc(RES.id)+'</h2><div class="muted">'+esc(x.issue || '')+(x.dept ? ' · '+esc(x.dept) : '')+'</div>' +
+    (x.status === 'Resolved' ? '<div class="err">This finding is already Resolved.</div>' : '') +
+    '<label>Resolution *</label><textarea rows="3" id="rNote" placeholder="What was done to resolve it?"'+dis+'>'+esc(RES.note)+'</textarea>' +
+    '<label>After Photo *</label>' + (RES.url ? '<div class="shots"><div><img src="'+RES.url+'" alt="After-fix photo"></div></div>' : '') +
+    '<div class="row"><button class="'+(RES.url ? '' : 'primary ')+'big" id="rCam"'+dis+'>📷 '+(RES.url ? 'Retake photo' : 'Open camera')+'</button><button id="rPick"'+dis+'>🖼 Gallery</button></div>' +
+    '<div class="hint">Resolved By: <b>'+esc(ME.name)+'</b> · Resolved On is added when saved</div>' +
+    '<div class="row"><button class="primary big" id="rSave"'+dis+'>'+(BUSY ? 'Saving…' : 'Mark Resolved')+'</button></div>' +
+    '<div class="row"><button id="rBack"'+dis+'>Cancel</button></div><div class="muted" id="rProg"></div><div class="err" id="rErr"></div></section>';
+  $('rNote').oninput = e => { RES.note = e.target.value; };
+  $('rCam').onclick = openCam; $('rPick').onclick = () => { $('pickIn').multiple = false; $('pickIn').click(); };
+  $('rBack').onclick = () => { if (RES.url) URL.revokeObjectURL(RES.url); location.href = DASH; };
+  $('rSave').onclick = resSave;
+}
+async function resSave(){
+  RES.note = $('rNote').value.trim();
+  if (!RES.note) { $('rErr').textContent = 'Please write the Resolution.'; return; }
+  if (!RES.blob) { $('rErr').textContent = 'Please take or choose the After Photo.'; return; }
+  BUSY = true; resolveView(); $('rProg').textContent = 'Saving photo…';
+  try {
+    const r = await api('resolveFinding', {mode:'resolve', row: RES.row, id: RES.id, note: RES.note, mime:'image/jpeg', ext:'jpg', data: await b64(RES.blob)});
+    BUSY = false; if (RES.url) URL.revokeObjectURL(RES.url);
+    RES.done = '✓ <b>'+esc(RES.id)+'</b> marked Resolved' + (r && r.appr === 'Pending' ? ' — sent for Manager Approval' : '') + '.';
+    resolveView();
+  } catch(e) {
+    BUSY = false; if (e === 'AUTH') return; resolveView();
+    $('rErr').textContent = 'Not saved: ' + e + ' — press Mark Resolved again.';
   }
 }
 
